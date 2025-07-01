@@ -23,9 +23,14 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     address public ADMIN_VERIFY_ADDRESS;
     address public BASE_TOKEN;
     address public CONTROLLER;
+    uint256 public POSITION_NFT_ID;
 
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
+    modifier onlyOwner() {
+        require(msg.sender == owner, "Not owner");
+        _;
+    }
     // Modifier to allow only owner or admin
     modifier onlyOwnerOrAdmin() {
         require(
@@ -51,6 +56,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     bool public bondingComplete;
     uint256 public bondingCompleteAt;
     bool public isLiquidityAdded;
+    bool public bondingStarted; // Default false, controls if buy/sell is allowed
 
     // PancakeSwap V3 related addresses
     address public constant PANCAKE_V3_FACTORY =
@@ -97,6 +103,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         uint256 baseAmount,
         uint256 timestamp
     );
+    event BondingStart(uint256 timestamp);
 
     constructor(
         address _initAdmin,
@@ -265,6 +272,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
 
             require(signer == ADMIN_VERIFY_ADDRESS, "invalid signature");
         }
+        require(bondingStarted, "Bonding not started");
         // Call getBaseTokenConfig once and destructure
         (
             ,
@@ -378,6 +386,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     }
 
     function sell(uint256 tokenAmount) external nonReentrant returns (uint256) {
+        require(bondingStarted, "Bonding not started");
         require(initialized, "Not initialized");
         require(!bondingComplete, "Bonding complete");
         require(tokenAmount > 0, "Invalid token amount");
@@ -494,11 +503,12 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             NONFUNGIBLE_POSITION_MANAGER
         ).mint(params);
 
-        INonfungiblePositionManager(NONFUNGIBLE_POSITION_MANAGER).transferFrom(
-            address(this),
-            0x000000000000000000000000000000000000dEaD,
-            tokenId
-        );
+        // INonfungiblePositionManager(NONFUNGIBLE_POSITION_MANAGER).transferFrom(
+        //     address(this),
+        //     0x000000000000000000000000000000000000dEaD,
+        //     tokenId
+        // );
+        POSITION_NFT_ID = tokenId;
 
         emit LiquidityAdded(
             address(this),
@@ -532,5 +542,27 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         address _adminVerifyAddress
     ) external onlyRole(ADMIN_ROLE) {
         ADMIN_VERIFY_ADDRESS = _adminVerifyAddress;
+    }
+
+    function startBonding() external onlyOwnerOrAdmin {
+        require(!bondingStarted, "Bonding already started");
+        bondingStarted = true;
+        emit BondingStart(block.timestamp);
+    }
+
+    function collectFees(address _receiver) external onlyOwner {
+        require(POSITION_NFT_ID != 0, "Invalid POSITION_NFT_ID");
+        require(_receiver != address(0), "Invalid receiver");
+
+        INonfungiblePositionManager.CollectParams
+            memory params = INonfungiblePositionManager.CollectParams({
+                tokenId: POSITION_NFT_ID,
+                recipient: _receiver,
+                amount0Max: type(uint128).max,
+                amount1Max: type(uint128).max
+            });
+        INonfungiblePositionManager(NONFUNGIBLE_POSITION_MANAGER).collect(
+            params
+        );
     }
 }

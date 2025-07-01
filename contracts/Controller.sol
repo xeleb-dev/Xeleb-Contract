@@ -95,6 +95,7 @@ contract Controller is AccessControl {
         address baseToken,
         string memory name,
         string memory symbol,
+        bool isAutoStartBonding,
         bytes32 salt,
         string memory id,
         uint256 devTeamPercent,
@@ -195,6 +196,9 @@ contract Controller is AccessControl {
             address(staking),
             IS_AUTO_ADD_LIQUIDITY
         );
+        if (isAutoStartBonding) {
+            bondingCurve.startBonding();
+        }
         // Store the mapping
         tokenToBondingCurve[address(token)] = address(bondingCurve);
 
