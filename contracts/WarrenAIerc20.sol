@@ -7,22 +7,27 @@ import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC2
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract WarrenAIerc20 is ERC20, ERC20Burnable, Ownable {
-    bool public isLaunched;
+    bool public isBonding;
     address public bondingCurve;
 
     constructor(
         string memory _name,
         string memory _symbol,
-        uint256 _totalSupply,
-        address _bonding
-    ) ERC20(_name, _symbol) Ownable(_bonding) {
+        uint256 _totalSupply
+    ) ERC20(_name, _symbol) Ownable(msg.sender) {
         _mint(msg.sender, _totalSupply);
-        bondingCurve = _bonding;
+    }
+
+    function startBonding(address _bondingCurve) external onlyOwner {
+        bondingCurve = _bondingCurve;
+        transferOwnership(_bondingCurve);
+        isBonding = true;
     }
 
     function launch() external onlyOwner {
-        require(!isLaunched, "ERC20: LP already added");
-        isLaunched = true;
+        require(isBonding, "ERC20: Not bonding");
+        isBonding = false;
+        bondingCurve = address(0);
         renounceOwnership();
     }
 
@@ -31,8 +36,7 @@ contract WarrenAIerc20 is ERC20, ERC20Burnable, Ownable {
         address to,
         uint256 amount
     ) internal virtual override {
-        // If token is not launched, only allow transfers to/from bondingCurve
-        if (!isLaunched) {
+        if (isBonding) {
             require(
                 from == bondingCurve || to == bondingCurve,
                 "ERC20: Transfers not allowed before launch"

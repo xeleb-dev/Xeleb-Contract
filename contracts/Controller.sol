@@ -159,7 +159,6 @@ contract Controller is AccessControl {
 
         // 1. Deploy new TokenERC20
         TokenERC20 token = _deployNewToken(
-            address(bondingCurve),
             baseToken,
             name,
             symbol,
@@ -214,6 +213,8 @@ contract Controller is AccessControl {
         token.approve(address(staking), stakingAmount);
         staking.initializeToken(address(token), stakingAmount, STAKING_APY); // Example: 10% APY (1000 basis points)
 
+        token.startBonding(address(bondingCurve));
+
         return address(token);
     }
 
@@ -230,7 +231,6 @@ contract Controller is AccessControl {
     }
 
     function _deployNewToken(
-        address bondingCurve,
         address baseToken,
         string memory name,
         string memory symbol,
@@ -242,8 +242,7 @@ contract Controller is AccessControl {
         TokenERC20 newToken = new TokenERC20{salt: _salt}(
             name,
             symbol,
-            inititalSupply,
-            bondingCurve
+            inititalSupply
         );
         require(
             address(newToken) < baseToken,

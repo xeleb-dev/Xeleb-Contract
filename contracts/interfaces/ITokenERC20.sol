@@ -26,4 +26,6 @@ interface ITokenERC20 {
     function balanceOf(address account) external view returns (uint256);
 
     function launch() external;
+
+    function startBonding(address _bondingCurve) external;
 }
