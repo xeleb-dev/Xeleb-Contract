@@ -145,15 +145,6 @@ contract Controller is AccessControl {
             );
         }
 
-        // 1. Deploy new TokenERC20
-        TokenERC20 token = _deployNewToken(
-            baseToken,
-            name,
-            symbol,
-            INITIAL_SUPPLY,
-            salt
-        );
-
         // 2. Calculate allocations
         uint256 bondingAmount = (INITIAL_SUPPLY * BONDING_CURVE_PERCENT) / DEMI;
         uint256 liquidityAmount = (INITIAL_SUPPLY * LIQUIDITY_PERCENT) / DEMI;
@@ -164,11 +155,16 @@ contract Controller is AccessControl {
             devTeamAmount;
 
         // 3. Deploy BondingCurve and initialize
-        BondingCurve bondingCurve = new BondingCurve(
-            owner,
-            address(token),
+        BondingCurve bondingCurve = new BondingCurve(owner, address(this));
+
+        // 1. Deploy new TokenERC20
+        TokenERC20 token = _deployNewToken(
+            address(bondingCurve),
             baseToken,
-            address(this)
+            name,
+            symbol,
+            INITIAL_SUPPLY,
+            salt
         );
 
         emit TokenCreated(
@@ -188,6 +184,8 @@ contract Controller is AccessControl {
 
         token.approve(address(bondingCurve), bondingAmount + liquidityAmount);
         bondingCurve.initialize(
+            address(token),
+            baseToken,
             ADMIN_VERIFY_ADDRESS,
             msg.sender,
             bondingAmount,
@@ -232,6 +230,7 @@ contract Controller is AccessControl {
     }
 
     function _deployNewToken(
+        address bondingCurve,
         address baseToken,
         string memory name,
         string memory symbol,
@@ -243,7 +242,8 @@ contract Controller is AccessControl {
         TokenERC20 newToken = new TokenERC20{salt: _salt}(
             name,
             symbol,
-            inititalSupply
+            inititalSupply,
+            bondingCurve
         );
         require(
             address(newToken) < baseToken,

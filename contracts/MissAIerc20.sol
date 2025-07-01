@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract WarrenAIerc20 is ERC20, ERC20Burnable, Ownable {
+contract MissAIerc20 is ERC20, ERC20Burnable, Ownable {
     bool public isLaunched;
     address public bondingCurve;
 

@@ -20,7 +20,7 @@ import "./interfaces/IController.sol";
 
 contract BondingCurve is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
-    
+
     IERC20 public token;
     address public owner;
     address public ADMIN_VERIFY_ADDRESS;
@@ -108,14 +108,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     );
     event BondingStart(uint256 timestamp);
 
-    constructor(
-        address _initAdmin,
-        address _token,
-        address _baseToken,
-        address _controller
-    ) {
-        token = IERC20(_token);
-        BASE_TOKEN = _baseToken;
+    constructor(address _initAdmin, address _controller) {
         CONTROLLER = _controller;
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
@@ -123,6 +116,8 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     }
 
     function initialize(
+        address _token,
+        address _baseToken,
         address _adminVerifyAddress,
         address _owner,
         uint256 _bondingSupply,
@@ -137,6 +132,8 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         require(_finalBaseAmount > 0, "Invalid final base amount");
         require(_stakingAddress != address(0), "Invalid staking address");
 
+        token = IERC20(_token);
+        BASE_TOKEN = _baseToken;
         ADMIN_VERIFY_ADDRESS = _adminVerifyAddress;
         owner = _owner;
 
@@ -503,6 +500,8 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         //     tokenId
         // );
         POSITION_NFT_ID = tokenId;
+
+        ITokenERC20(address(token)).launch();
 
         emit LiquidityAdded(
             address(this),
