@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "hardhat/console.sol";
@@ -10,6 +11,8 @@ import "./interfaces/IController.sol";
 import {DevVestingParam} from "./structs/VestingParam.sol";
 
 contract Vesting is ReentrancyGuard, AccessControl, Pausable {
+    using SafeERC20 for IERC20;
+
     struct VestingSchedule {
         uint256 totalAmount;
         uint256 startTime;
@@ -123,10 +126,7 @@ contract Vesting is ReentrancyGuard, AccessControl, Pausable {
         uint256 unlockPercent,
         bool isBondingCurve
     ) external onlyAdmin whenNotPaused {
-        require(
-            IERC20(token).transferFrom(msg.sender, address(this), amount),
-            "Transfer to contract failed"
-        );
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         _addVestingSchedule(
             token,
             beneficiary,
@@ -151,9 +151,7 @@ contract Vesting is ReentrancyGuard, AccessControl, Pausable {
         }
         require(totalDevPercent == DEMI, "Dev percents must sum to DEMI");
         // Single transfer for all vestings
-        require(
-            IERC20(token).transferFrom(msg.sender, address(this), devTeamAmount)
-        );
+        IERC20(token).safeTransferFrom(msg.sender, address(this), devTeamAmount);
         for (uint256 i = 0; i < len; i++) {
             uint256 amount = (devTeamAmount * params[i].devPercent) / DEMI;
             _addVestingSchedule(
@@ -225,10 +223,7 @@ contract Vesting is ReentrancyGuard, AccessControl, Pausable {
             schedule.unlockClaimed = true;
             uint256 amount = schedule.unlockAmount;
             if (amount > 0) {
-                require(
-                    IERC20(token).transfer(beneficiary, amount),
-                    "Unlock transfer failed"
-                );
+                IERC20(token).safeTransfer(beneficiary, amount);
             }
             emit TriggerVesting(token, beneficiary, schedule.startTime);
         }
@@ -271,7 +266,7 @@ contract Vesting is ReentrancyGuard, AccessControl, Pausable {
         schedule.releasedAmount += claimableAmount;
         schedule.lastClaimTime = block.timestamp;
 
-        IERC20(token).transfer(beneficiary, claimableAmount);
+        IERC20(token).safeTransfer(beneficiary, claimableAmount);
 
         if (schedule.releasedAmount >= schedule.totalAmount) {
             delete vestingSchedules[token][beneficiary];
@@ -336,6 +331,6 @@ contract Vesting is ReentrancyGuard, AccessControl, Pausable {
         uint256 amount
     ) external onlyAdmin {
         require(to != address(0), "Invalid to address");
-        require(IERC20(token).transfer(to, amount), "Withdraw failed");
+        IERC20(token).safeTransfer(to, amount);
     }
 }

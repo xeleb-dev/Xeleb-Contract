@@ -2,8 +2,11 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library Cashier {
+    using SafeERC20 for IERC20;
+    
     function nativeToken() internal view returns (address) {
         if (block.chainid == 97) {
             // BSC Testnet
@@ -27,10 +30,7 @@ library Cashier {
         } else {
             require(msg.value == 0, "Do not send BNB when using ERC20");
             if (from != address(this)) {
-                require(
-                    IERC20(token).transferFrom(from, address(this), amount),
-                    "ERC20 transferFrom failed"
-                );
+                IERC20(token).safeTransferFrom(from, address(this), amount);
             }
         }
     }
@@ -40,10 +40,7 @@ library Cashier {
             (bool success, ) = to.call{value: amount}("");
             require(success, "BNB transfer failed");
         } else {
-            require(
-                IERC20(token).transfer(to, amount),
-                "ERC20 transfer failed"
-            );
+            IERC20(token).safeTransfer(to, amount);
         }
     }
 

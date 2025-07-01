@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./TokenERC20.sol";
 import "./BondingCurve.sol";
 import "./interfaces/IVesting.sol";
@@ -11,6 +12,8 @@ import "./interfaces/IBondingCurve.sol";
 import {DevVestingParam} from "./structs/VestingParam.sol";
 
 contract Controller is AccessControl {
+    using SafeERC20 for IERC20;
+
     address public ADMIN_VERIFY_ADDRESS =
         0x029cbcE751B86bF87D6541011fAac54C93282507;
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -135,13 +138,10 @@ contract Controller is AccessControl {
             }
         } else if (CREATE_TOKEN_FEE_XCX > 0) {
             IERC20 xcx = IERC20(XCX_ADDRESS);
-            require(
-                xcx.transferFrom(
-                    msg.sender,
-                    FEE_RECEIVER,
-                    CREATE_TOKEN_FEE_XCX
-                ),
-                "XCX fee transfer failed"
+            xcx.safeTransferFrom(
+                msg.sender,
+                FEE_RECEIVER,
+                CREATE_TOKEN_FEE_XCX
             );
         }
 

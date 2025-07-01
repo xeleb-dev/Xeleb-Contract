@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
@@ -18,6 +19,8 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./interfaces/IController.sol";
 
 contract BondingCurve is AccessControl, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+    
     IERC20 public token;
     address public owner;
     address public ADMIN_VERIFY_ADDRESS;
@@ -170,13 +173,10 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             _bondingSupply - _liquiditySupply
         );
 
-        require(
-            token.transferFrom(
-                msg.sender,
-                address(this),
-                BONDING_SUPPLY + LIQUIDITY_SUPPLY
-            ),
-            "Token transfer failed"
+        token.safeTransferFrom(
+            msg.sender,
+            address(this),
+            BONDING_SUPPLY + LIQUIDITY_SUPPLY
         );
         _initPool(_finalBaseAmount, _liquiditySupply);
         initialized = true;
@@ -329,7 +329,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             if (Cashier.isNative(BASE_TOKEN)) {
                 IStaking(STAKING_ADDRESS).receiveFeeDistribution{value: fee}();
             } else {
-                IERC20(BASE_TOKEN).transfer(
+                IERC20(BASE_TOKEN).safeTransfer(
                     0x000000000000000000000000000000000000dEaD,
                     fee
                 );
@@ -352,10 +352,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         totalBaseRaised += baseUsed;
         userTotalBought[msg.sender] += baseUsed;
 
-        require(
-            token.transfer(msg.sender, userReceive),
-            "Token transfer failed"
-        );
+        token.safeTransfer(msg.sender, userReceive);
         if (burnAmount > 0) {
             ITokenERC20(address(token)).burn(burnAmount);
         }
@@ -408,7 +405,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             if (Cashier.isNative(BASE_TOKEN)) {
                 IStaking(STAKING_ADDRESS).receiveFeeDistribution{value: fee}();
             } else {
-                IERC20(BASE_TOKEN).transfer(
+                IERC20(BASE_TOKEN).safeTransfer(
                     0x000000000000000000000000000000000000dEaD,
                     fee
                 );
@@ -416,10 +413,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         }
         uint userReceiveBase = baseAmount - fee;
 
-        require(
-            token.transferFrom(msg.sender, address(this), tokenAmount),
-            "Token transfer failed"
-        );
+        token.safeTransferFrom(msg.sender, address(this), tokenAmount);
         if (burnAmount > 0) {
             ITokenERC20(address(token)).burn(burnAmount);
         }
