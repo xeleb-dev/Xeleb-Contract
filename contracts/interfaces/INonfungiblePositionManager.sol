@@ -47,4 +47,20 @@ interface INonfungiblePositionManager {
     ) external payable returns (uint256 amount0, uint256 amount1);
 
     function transferFrom(address from, address to, uint256 tokenId) external;
+
+    // ERC721 standard approve functions
+    function approve(address to, uint256 tokenId) external;
+
+    function setApprovalForAll(address operator, bool approved) external;
+
+    function getApproved(
+        uint256 tokenId
+    ) external view returns (address operator);
+
+    function isApprovedForAll(
+        address owner,
+        address operator
+    ) external view returns (bool);
+
+    function ownerOf(uint256 tokenId) external view returns (address owner);
 }

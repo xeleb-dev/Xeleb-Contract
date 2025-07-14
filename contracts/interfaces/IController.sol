@@ -22,4 +22,6 @@ interface IController {
         external
         view
         returns (uint256 feePercent, uint256 burnPercent);
+
+    function getLockerAddress() external view returns (address);
 }

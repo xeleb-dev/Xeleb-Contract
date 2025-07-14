@@ -17,6 +17,7 @@ import "./Cashier.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "./interfaces/IController.sol";
+import "./interfaces/ILocker.sol";
 
 contract BondingCurve is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -63,17 +64,14 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
 
     // PancakeSwap V3 related addresses
     address public constant PANCAKE_V3_FACTORY =
-        0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865;
+        0x0BFbCF9fa4f9C56B0F40a671Ad40E0805A091865; // @TODO: update in production
     address public constant PANCAKE_V3_ROUTER =
-        0x13f4EA83D0bd40E75C8222255bc855a974568Dd4;
+        0x13f4EA83D0bd40E75C8222255bc855a974568Dd4; // @TODO: update in production
     address public constant NONFUNGIBLE_POSITION_MANAGER =
-        0x427bF5b37357632377eCbEC9de3626C71A5396c1;
-    uint24 public constant POOL_FEE = 100; // 0.01% fee tier
+        0x427bF5b37357632377eCbEC9de3626C71A5396c1; // @TODO: update in production
+    uint24 public FEE_TIER = 2500; // 0.25% fee tier
 
     // Constants for liquidity range
-    int24 private constant MIN_TICK = -887272;
-    int24 private constant MAX_TICK = -MIN_TICK;
-
     uint256 private constant PRECISION = 1e18;
 
     uint256 public constant DEMI = 10000; // 100.00% = 10000, 1% = 100
@@ -109,10 +107,10 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     event BondingStart(uint256 timestamp);
 
     constructor(address _initAdmin, address _controller) {
-        CONTROLLER = _controller;
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(ADMIN_ROLE, msg.sender);
+        _grantRole(DEFAULT_ADMIN_ROLE, _initAdmin);
         _grantRole(ADMIN_ROLE, _initAdmin);
+        CONTROLLER = _controller;
+        _grantRole(ADMIN_ROLE, _controller);
     }
 
     function initialize(
@@ -124,7 +122,8 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         uint256 _liquiditySupply,
         uint256 _finalBaseAmount,
         address _stakingAddress,
-        bool _isAutoAddLiquidity
+        bool _isAutoAddLiquidity,
+        uint24 _feeTier
     ) external onlyRole(ADMIN_ROLE) {
         require(!initialized, "Already initialized");
         require(_bondingSupply > 0, "Invalid bonding supply");
@@ -142,6 +141,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         FINAL_BASE_AMOUNT = _finalBaseAmount;
         STAKING_ADDRESS = _stakingAddress;
         IS_AUTO_ADD_LIQUIDITY = _isAutoAddLiquidity;
+        FEE_TIER = _feeTier;
 
         // Calculate virtual reserves so that:
         // 1.  total Base raised equals FINAL_BASE_AMOUNT when BONDING_SUPPLY tokens have been sold; and
@@ -187,10 +187,10 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
     ) private {
         // Create pool if it doesn't exist
         IPancakeV3Factory factory = IPancakeV3Factory(PANCAKE_V3_FACTORY);
-        address pool = factory.getPool(address(token), BASE_TOKEN, POOL_FEE);
+        address pool = factory.getPool(address(token), BASE_TOKEN, FEE_TIER);
 
         if (pool == address(0)) {
-            pool = factory.createPool(address(token), BASE_TOKEN, POOL_FEE);
+            pool = factory.createPool(address(token), BASE_TOKEN, FEE_TIER);
         }
 
         // Calculate sqrt price
@@ -257,6 +257,7 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             bytes32 _hash = keccak256(
                 abi.encodePacked(
                     "buy",
+                    address(token),
                     msg.sender,
                     signatureExpiredAt,
                     _bonusMaxAmount
@@ -351,7 +352,10 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
 
         token.safeTransfer(msg.sender, userReceive);
         if (burnAmount > 0) {
-            ITokenERC20(address(token)).burn(burnAmount);
+            token.safeTransfer(
+                0x000000000000000000000000000000000000dEaD,
+                burnAmount
+            );
         }
         emit Trade(
             msg.sender,
@@ -412,7 +416,10 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
 
         token.safeTransferFrom(msg.sender, address(this), tokenAmount);
         if (burnAmount > 0) {
-            ITokenERC20(address(token)).burn(burnAmount);
+            token.safeTransfer(
+                0x000000000000000000000000000000000000dEaD,
+                burnAmount
+            );
         }
 
         Cashier.withdraw(BASE_TOKEN, msg.sender, userReceiveBase);
@@ -440,11 +447,12 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         require(bondingComplete, "Bonding not complete");
         require(!isLiquidityAdded, "Liquidity already added");
         isLiquidityAdded = true;
+        ITokenERC20(address(token)).launch();
 
         address pool = IPancakeV3Factory(PANCAKE_V3_FACTORY).getPool(
             address(token),
             BASE_TOKEN,
-            POOL_FEE
+            FEE_TIER
         );
 
         require((pool != address(0)), "Pool not deployed!");
@@ -474,19 +482,26 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             finalBaseAmount
         );
 
+        // Transfer LP NFT to Locker contract and lock it
+        address lockerAddress = IController(CONTROLLER).getLockerAddress();
+        require(lockerAddress != address(0), "Locker address is not set");
+
+        // Use new helper for min/max tick
+        (int24 minTick, int24 maxTick) = getMinAndMaxTick(FEE_TIER);
+
         uint256 tokenId;
         INonfungiblePositionManager.MintParams
             memory params = INonfungiblePositionManager.MintParams({
                 token0: token0,
                 token1: token1,
-                fee: POOL_FEE,
-                tickLower: MIN_TICK,
-                tickUpper: MAX_TICK,
+                fee: FEE_TIER,
+                tickLower: minTick,
+                tickUpper: maxTick,
                 amount0Desired: amount0Desired,
                 amount1Desired: amount1Desired,
                 amount0Min: 0,
                 amount1Min: 0,
-                recipient: address(this),
+                recipient: lockerAddress,
                 deadline: block.timestamp + 15 minutes
             });
 
@@ -494,14 +509,8 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
             NONFUNGIBLE_POSITION_MANAGER
         ).mint(params);
 
-        // INonfungiblePositionManager(NONFUNGIBLE_POSITION_MANAGER).transferFrom(
-        //     address(this),
-        //     0x000000000000000000000000000000000000dEaD,
-        //     tokenId
-        // );
         POSITION_NFT_ID = tokenId;
-
-        ITokenERC20(address(token)).launch();
+        ILocker(lockerAddress).lockWithDefaultDuration(tokenId, owner);
 
         emit LiquidityAdded(
             address(this),
@@ -543,19 +552,20 @@ contract BondingCurve is AccessControl, ReentrancyGuard {
         emit BondingStart(block.timestamp);
     }
 
-    function collectFees(address _receiver) external onlyOwner {
-        require(POSITION_NFT_ID != 0, "Invalid POSITION_NFT_ID");
-        require(_receiver != address(0), "Invalid receiver");
+    // Add a single helper function for min/max tick
+    function getMinAndMaxTick(
+        uint24 fee
+    ) public pure returns (int24 minTick, int24 maxTick) {
+        int24 tickSpacing;
+        if (fee == 100) tickSpacing = 1;
+        else if (fee == 500) tickSpacing = 10;
+        else if (fee == 2500) tickSpacing = 50;
+        else if (fee == 10000) tickSpacing = 200;
+        else revert("Unsupported fee tier");
 
-        INonfungiblePositionManager.CollectParams
-            memory params = INonfungiblePositionManager.CollectParams({
-                tokenId: POSITION_NFT_ID,
-                recipient: _receiver,
-                amount0Max: type(uint128).max,
-                amount1Max: type(uint128).max
-            });
-        INonfungiblePositionManager(NONFUNGIBLE_POSITION_MANAGER).collect(
-            params
-        );
+        int24 min = -887272;
+        int24 max = 887272;
+        minTick = (min / tickSpacing) * tickSpacing;
+        maxTick = (max / tickSpacing) * tickSpacing;
     }
 }

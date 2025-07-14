@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 library Cashier {
     using SafeERC20 for IERC20;
-    
+
     function nativeToken() internal view returns (address) {
         if (block.chainid == 97) {
             // BSC Testnet

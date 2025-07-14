@@ -3,19 +3,16 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./TokenERC20.sol";
-import "./BondingCurve.sol";
+import "./BondingCurveFactory.sol";
 import "./interfaces/IVesting.sol";
 import "./interfaces/IStaking.sol";
 import "./interfaces/IBondingCurve.sol";
 import {DevVestingParam} from "./structs/VestingParam.sol";
 
 contract Controller is AccessControl {
-    using SafeERC20 for IERC20;
-
     address public ADMIN_VERIFY_ADDRESS =
-        0x029cbcE751B86bF87D6541011fAac54C93282507;
+        0x029cbcE751B86bF87D6541011fAac54C93282507; // @TODO: update in production
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
 
     uint256 public INITIAL_SUPPLY = 888_888_888 ether;
@@ -24,7 +21,7 @@ contract Controller is AccessControl {
     // Config variables
     uint256 public CREATE_TOKEN_FEE = 0.001 ether;
     uint256 public CREATE_TOKEN_FEE_XCX = 50 ether;
-    address public owner;
+    address public bondingAdmin;
     address public FEE_RECEIVER;
     address public XCX_ADDRESS;
     uint256 public constant DEMI = 10000;
@@ -33,6 +30,9 @@ contract Controller is AccessControl {
     uint256 public DEV_TEAM_MAX_PERCENT = 1500; // 15%
     uint256 public STAKING_APY = 1000;
     uint256 public REQUIRE_XCX_STAKED_AMOUNT = 0; // Default 1000 XCX tokens
+
+    address private LOCKER_ADDRESS;
+    uint24 private FEE_TIER = 2500; // 0.25% fee tier
 
     IVesting public vesting;
     IStaking public staking;
@@ -56,6 +56,8 @@ contract Controller is AccessControl {
     mapping(address => address) public tokenToBondingCurve;
     mapping(bytes32 => bool) _mapSalt;
 
+    address public bondingCurveFactory; // Address of the factory
+
     event TokenCreated(
         string id,
         address indexed tokenAddress,
@@ -71,14 +73,23 @@ contract Controller is AccessControl {
         uint256 devTeamSupply
     );
 
-    constructor(address _feeReceiver, address _xcx) {
+    constructor(
+        address _feeReceiver,
+        address _xcx,
+        address _bondingCurveFactory
+    ) {
         require(_feeReceiver != address(0), "Invalid fee receiver");
         require(_xcx != address(0), "Invalid XCX address");
+        require(
+            _bondingCurveFactory != address(0),
+            "Invalid BondingCurveFactory address"
+        );
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
         FEE_RECEIVER = _feeReceiver;
         XCX_ADDRESS = _xcx;
-        owner = msg.sender;
+        bondingAdmin = msg.sender;
+        bondingCurveFactory = _bondingCurveFactory;
     }
 
     function initialize(
@@ -138,11 +149,7 @@ contract Controller is AccessControl {
             }
         } else if (CREATE_TOKEN_FEE_XCX > 0) {
             IERC20 xcx = IERC20(XCX_ADDRESS);
-            xcx.safeTransferFrom(
-                msg.sender,
-                FEE_RECEIVER,
-                CREATE_TOKEN_FEE_XCX
-            );
+            xcx.transferFrom(msg.sender, FEE_RECEIVER, CREATE_TOKEN_FEE_XCX);
         }
 
         // 2. Calculate allocations
@@ -155,7 +162,9 @@ contract Controller is AccessControl {
             devTeamAmount;
 
         // 3. Deploy BondingCurve and initialize
-        BondingCurve bondingCurve = new BondingCurve(owner, address(this));
+        address bondingCurveAddr = BondingCurveFactory(bondingCurveFactory)
+            .deploy(bondingAdmin, address(this));
+        IBondingCurve bondingCurve = IBondingCurve(bondingCurveAddr);
 
         // 1. Deploy new TokenERC20
         TokenERC20 token = _deployNewToken(
@@ -170,7 +179,7 @@ contract Controller is AccessControl {
             id,
             address(token),
             baseToken,
-            address(bondingCurve),
+            bondingCurveAddr,
             name,
             symbol,
             msg.sender,
@@ -181,7 +190,7 @@ contract Controller is AccessControl {
             devTeamAmount
         );
 
-        token.approve(address(bondingCurve), bondingAmount + liquidityAmount);
+        token.approve(bondingCurveAddr, bondingAmount + liquidityAmount);
         bondingCurve.initialize(
             address(token),
             baseToken,
@@ -191,13 +200,14 @@ contract Controller is AccessControl {
             liquidityAmount,
             baseTokenConfigs[baseToken].finalBaseAmount,
             address(staking),
-            IS_AUTO_ADD_LIQUIDITY
+            IS_AUTO_ADD_LIQUIDITY,
+            FEE_TIER
         );
         if (isAutoStartBonding) {
             bondingCurve.startBonding();
         }
         // Store the mapping
-        tokenToBondingCurve[address(token)] = address(bondingCurve);
+        tokenToBondingCurve[address(token)] = bondingCurveAddr;
 
         if (devTeamAmount > 0) {
             token.approve(address(vesting), devTeamAmount);
@@ -387,5 +397,32 @@ contract Controller is AccessControl {
         predicted = address(uint160(uint256(hash)));
         isValid = predicted < baseToken;
         return (predicted, isValid);
+    }
+
+    function setLockerAddress(
+        address newLockerAddress
+    ) external onlyRole(ADMIN_ROLE) {
+        require(newLockerAddress != address(0), "Invalid locker address");
+        LOCKER_ADDRESS = newLockerAddress;
+    }
+
+    function getLockerAddress() external view returns (address) {
+        return LOCKER_ADDRESS;
+    }
+
+    function setBondingCurveFactory(
+        address newFactory
+    ) external onlyRole(ADMIN_ROLE) {
+        require(newFactory != address(0), "Invalid factory address");
+        bondingCurveFactory = newFactory;
+    }
+
+    function setBondingAdmin(address newAdmin) external onlyRole(ADMIN_ROLE) {
+        require(newAdmin != address(0), "Invalid admin address");
+        bondingAdmin = newAdmin;
+    }
+
+    function setFeeTier(uint24 newFeeTier) external onlyRole(ADMIN_ROLE) {
+        FEE_TIER = newFeeTier;
     }
 }
