@@ -4,8 +4,6 @@ pragma solidity ^0.8.20;
 interface ITokenERC20 {
     function transfer(address to, uint256 value) external returns (bool);
 
-    function burn(uint256 value) external;
-
     function approve(address spender, uint256 value) external returns (bool);
 
     /**
